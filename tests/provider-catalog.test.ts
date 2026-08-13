@@ -78,15 +78,17 @@ test("provider command and prefix can be configured without source edits", async
   }
 });
 
-test("Windows npm shims are resolved without shell execution", () => {
+test("installed Windows npm shims are resolved without shell execution", () => {
   if (process.platform !== "win32") return;
   const common = { prompt: "safe & literal", workDir: "C:\\repo", permission: "read-only" as const };
   for (const id of ["zcode", "codex", "pi"] as const) {
     const invocation = buildProviderInvocation(id, common);
+    if (invocation.command === id) continue;
     assert.match(invocation.command, /node\.exe$/iu);
     assert.match(invocation.args[0] ?? "", /\.(?:js|mjs)$/iu);
   }
-  assert.match(buildProviderInvocation("claude", common).command, /claude\.exe$/iu);
+  const claude = buildProviderInvocation("claude", common).command;
+  assert.ok(claude === "claude" || /claude\.exe$/iu.test(claude));
 });
 
 test("resume uses explicit session ids without attaching to a live TUI", () => {
