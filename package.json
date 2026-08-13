@@ -1,9 +1,20 @@
 {
   "name": "local-agent-gateway-mcp",
   "version": "0.2.0",
-  "private": true,
+  "license": "Apache-2.0",
   "type": "module",
   "description": "Windows-native MCP gateway for invoking local Agent CLIs as external subagents.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kvxw1105/agent-gateway-mcp.git"
+  },
+  "homepage": "https://github.com/Kvxw1105/agent-gateway-mcp#readme",
+  "bugs": "https://github.com/Kvxw1105/agent-gateway-mcp/issues",
+  "files": [
+    "dist/src",
+    "LICENSE",
+    "README.md"
+  ],
   "bin": {
     "agent-gateway-mcp": "dist/src/index.js"
   },

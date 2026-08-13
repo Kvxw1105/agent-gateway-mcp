@@ -37,13 +37,13 @@ test("read-only invocations use provider-native restrictions", () => {
   ]);
 });
 
-test("Claude invocation clears incompatible Anthropic endpoint overrides locally", () => {
+test("Claude invocation preserves standard authentication environment by default", () => {
   const invocation = buildProviderInvocation("claude", {
     prompt: "hello",
     workDir: "C:\\repo",
     permission: "read-only",
   });
-  assert.deepEqual(invocation.unsetEnv, ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"]);
+  assert.equal(invocation.unsetEnv, undefined);
 });
 
 test("Pi invocation requests the OpenCode key from Windows user credentials", () => {
@@ -53,6 +53,29 @@ test("Pi invocation requests the OpenCode key from Windows user credentials", ()
     permission: "read-only",
   });
   assert.deepEqual(invocation.userEnvKeys, ["OPENCODE_API_KEY"]);
+});
+
+test("provider command and prefix can be configured without source edits", async () => {
+  const commandKey = "AGENT_GATEWAY_ZCODE_COMMAND";
+  const argsKey = "AGENT_GATEWAY_ZCODE_PREFIX_ARGS";
+  const previousCommand = process.env[commandKey];
+  const previousArgs = process.env[argsKey];
+  process.env[commandKey] = "C:\\portable\\node.exe";
+  process.env[argsKey] = '["C:\\\\portable\\\\zcode.js"]';
+  try {
+    const moduleUrl = new URL(`../src/providers/catalog.js?override=${Date.now()}`, import.meta.url).href;
+    const configured = await import(moduleUrl) as typeof import("../src/providers/catalog.js");
+    const invocation = configured.buildProviderInvocation("zcode", {
+      prompt: "hello",
+      workDir: "C:\\repo",
+      permission: "read-only",
+    });
+    assert.equal(invocation.command, "C:\\portable\\node.exe");
+    assert.equal(invocation.args[0], "C:\\portable\\zcode.js");
+  } finally {
+    if (previousCommand === undefined) delete process.env[commandKey]; else process.env[commandKey] = previousCommand;
+    if (previousArgs === undefined) delete process.env[argsKey]; else process.env[argsKey] = previousArgs;
+  }
 });
 
 test("Windows npm shims are resolved without shell execution", () => {

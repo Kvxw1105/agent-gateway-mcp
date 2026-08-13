@@ -3,92 +3,73 @@ import os from "node:os";
 import path from "node:path";
 import type { ProviderId, ProviderInfo, ProviderInvocation, ProviderRequest } from "./types.js";
 
-function firstExisting(candidates: string[], fallback: string): string {
-  return candidates.find((candidate) => existsSync(candidate)) ?? fallback;
+interface LaunchTarget {
+  command: string;
+  prefixArgs: string[];
 }
 
-const zcodeRoot = "D:\\node\\node-v22.16.0-win-x64";
-const claudeRoot = path.join(os.homedir(), "AppData", "Local", "Programs", "nodejs", "node-v22.19.0-win-x64");
-const codexRoot = "D:\\node\\node-v22.16.0-win-x64";
-const piScript = path.join(os.homedir(), "AppData", "Roaming", "npm", "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js");
+const launchTargets: Record<ProviderId, LaunchTarget> = {
+  zcode: npmPackageLaunch("zcode", "zcode-app-cli", ["bin", "zcode.js"]),
+  kimi: executableLaunch("kimi", [path.join(os.homedir(), ".kimi-code", "bin", "kimi.exe")]),
+  claude: packageExecutableLaunch("claude", "@anthropic-ai/claude-code", ["bin", "claude.exe"]),
+  codex: npmPackageLaunch("codex", "@openai/codex", ["bin", "codex.js"]),
+  pi: npmPackageLaunch("pi", "@earendil-works/pi-coding-agent", ["dist", "cli.js"]),
+};
 
-const launchPrefixes: Partial<Record<ProviderId, string[]>> = {};
-
-function windowsNodeLaunch(id: ProviderId, root: string, scriptParts: string[]): string {
-  const node = path.join(root, "node.exe");
-  const script = path.join(root, ...scriptParts);
-  if (process.platform === "win32" && existsSync(node) && existsSync(script)) {
-    launchPrefixes[id] = [script];
-    return node;
-  }
-  return id;
-}
+const piProvider = environment("AGENT_GATEWAY_PI_PROVIDER") ?? "opencode-go";
+const piModel = environment("AGENT_GATEWAY_PI_MODEL") ?? `${piProvider}/deepseek-v4-flash`;
+const codexModel = environment("AGENT_GATEWAY_CODEX_MODEL") ?? "gpt-5.5";
 
 const providers: ProviderInfo[] = [
-  {
-    id: "zcode",
-    displayName: "ZCode",
-    command: windowsNodeLaunch("zcode", zcodeRoot, ["node_modules", "zcode-app-cli", "bin", "zcode.js"]),
-    transport: "json",
-    supportsResume: true,
-    permissionBoundary: "hard",
-  },
-  {
-    id: "kimi",
-    displayName: "Kimi Code",
-    command: firstExisting([path.join(os.homedir(), ".kimi-code", "bin", "kimi.exe")], "kimi"),
-    transport: "stream-json",
-    supportsResume: true,
-    permissionBoundary: "mixed",
-  },
-  {
-    id: "claude",
-    displayName: "Claude Code",
-    command: firstExisting([path.join(claudeRoot, "node_modules", "@anthropic-ai", "claude-code", "bin", "claude.exe")], "claude"),
-    transport: "stream-json",
-    supportsResume: true,
-    permissionBoundary: "hard",
-  },
-  {
-    id: "codex",
-    displayName: "Codex CLI",
-    command: windowsNodeLaunch("codex", codexRoot, ["node_modules", "@openai", "codex", "bin", "codex.js"]),
-    transport: "jsonl",
-    supportsResume: true,
-    permissionBoundary: "hard",
-    defaultModel: "gpt-5.5",
-  },
-  {
-    id: "pi",
-    displayName: "Pi Coding Agent",
-    command: process.platform === "win32" && existsSync(piScript)
-      ? (launchPrefixes.pi = [piScript], process.execPath)
-      : "pi",
-    transport: "json",
-    supportsResume: true,
-    permissionBoundary: "hard",
-    defaultModel: "opencode-go/deepseek-v4-flash",
-  },
+  provider("zcode", "ZCode", "json", "hard"),
+  provider("kimi", "Kimi Code", "stream-json", "mixed"),
+  provider("claude", "Claude Code", "stream-json", "hard"),
+  provider("codex", "Codex CLI", "jsonl", "hard", codexModel),
+  provider("pi", "Pi Coding Agent", "json", "hard", piModel),
 ];
 
 export function listProviders(): ProviderInfo[] {
-  return providers.map((provider) => ({ ...provider }));
+  return providers.map((item) => ({ ...item }));
 }
 
 export function getProvider(id: ProviderId): ProviderInfo {
-  const provider = providers.find((item) => item.id === id);
-  if (!provider) throw new Error(`Unsupported provider: ${id}`);
-  return provider;
+  const result = providers.find((item) => item.id === id);
+  if (!result) throw new Error(`Unsupported provider: ${id}`);
+  return result;
 }
 
 export function buildProviderInvocation(id: ProviderId, request: ProviderRequest): ProviderInvocation {
-  const provider = getProvider(id);
-  const args = [...(launchPrefixes[id] ?? []), ...buildArgs(id, request)];
-  const unsetEnv = id === "claude"
+  const target = launchTargets[id];
+  const unsetEnv = id === "claude" && environment("AGENT_GATEWAY_CLAUDE_CLEAN_ENV") === "1"
     ? ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"]
     : undefined;
-  const userEnvKeys = id === "pi" ? ["OPENCODE_API_KEY"] : undefined;
-  return { command: provider.command, args, cwd: request.workDir, unsetEnv, userEnvKeys };
+  const piKey = environment("AGENT_GATEWAY_PI_API_KEY_ENV") ?? "OPENCODE_API_KEY";
+  const userEnvKeys = id === "pi" && piKey ? [piKey] : undefined;
+  return {
+    command: target.command,
+    args: [...target.prefixArgs, ...buildArgs(id, request)],
+    cwd: request.workDir,
+    unsetEnv,
+    userEnvKeys,
+  };
+}
+
+function provider(
+  id: ProviderId,
+  displayName: string,
+  transport: ProviderInfo["transport"],
+  permissionBoundary: ProviderInfo["permissionBoundary"],
+  defaultModel?: string,
+): ProviderInfo {
+  return {
+    id,
+    displayName,
+    command: launchTargets[id].command,
+    transport,
+    supportsResume: true,
+    permissionBoundary,
+    defaultModel,
+  };
 }
 
 function buildArgs(id: ProviderId, request: ProviderRequest): string[] {
@@ -114,17 +95,76 @@ function buildArgs(id: ProviderId, request: ProviderRequest): string[] {
     }
     case "codex": {
       const prefix = sessionId ? ["exec", "resume"] : ["exec"];
-      const args = [...prefix, "--json", "--color", "never", "-m", request.model ?? "gpt-5.5", "-C", workDir, "-s", permission === "read-only" ? "read-only" : "workspace-write"];
+      const args = [...prefix, "--json", "--color", "never", "-m", request.model ?? codexModel, "-C", workDir, "-s", permission === "read-only" ? "read-only" : "workspace-write"];
       if (sessionId) args.push(sessionId);
       args.push(prompt);
       return args;
     }
     case "pi": {
       const tools = permission === "read-only" ? "read,grep,find,ls" : "read,bash,edit,write,grep,find,ls";
-      const args = ["-p", "--mode", "json", "--provider", "opencode-go", "--model", request.model ?? "opencode-go/deepseek-v4-flash", "--tools", tools];
+      const args = ["-p", "--mode", "json", "--provider", piProvider, "--model", request.model ?? piModel, "--tools", tools];
       if (sessionId) args.push("--session", sessionId);
       args.push(prompt);
       return args;
     }
   }
+}
+
+function executableLaunch(id: ProviderId, extraCandidates: string[] = []): LaunchTarget {
+  const override = configuredLaunch(id);
+  if (override) return override;
+  const names = process.platform === "win32" ? [`${id}.exe`] : [id];
+  const found = [...extraCandidates, ...pathCandidates(names)].find((candidate) => existsSync(candidate));
+  return { command: found ?? id, prefixArgs: [] };
+}
+
+function npmPackageLaunch(id: ProviderId, packageName: string, scriptParts: string[]): LaunchTarget {
+  const override = configuredLaunch(id);
+  if (override) return override;
+  for (const root of npmRoots()) {
+    const script = path.join(root, "node_modules", ...packageName.split("/"), ...scriptParts);
+    if (!existsSync(script)) continue;
+    const localNode = path.join(root, process.platform === "win32" ? "node.exe" : "node");
+    return { command: existsSync(localNode) ? localNode : process.execPath, prefixArgs: [script] };
+  }
+  return { command: id, prefixArgs: [] };
+}
+
+function packageExecutableLaunch(id: ProviderId, packageName: string, executableParts: string[]): LaunchTarget {
+  const override = configuredLaunch(id);
+  if (override) return override;
+  for (const root of npmRoots()) {
+    const executable = path.join(root, "node_modules", ...packageName.split("/"), ...executableParts);
+    if (existsSync(executable)) return { command: executable, prefixArgs: [] };
+  }
+  return executableLaunch(id);
+}
+
+function configuredLaunch(id: ProviderId): LaunchTarget | undefined {
+  const prefix = `AGENT_GATEWAY_${id.toUpperCase()}_`;
+  const command = environment(`${prefix}COMMAND`);
+  if (!command) return undefined;
+  const rawArgs = environment(`${prefix}PREFIX_ARGS`);
+  if (!rawArgs) return { command, prefixArgs: [] };
+  const parsed: unknown = JSON.parse(rawArgs);
+  if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === "string")) {
+    throw new Error(`${prefix}PREFIX_ARGS must be a JSON string array`);
+  }
+  return { command, prefixArgs: parsed };
+}
+
+function npmRoots(): string[] {
+  const roots = new Set<string>();
+  for (const entry of (process.env.PATH ?? "").split(path.delimiter)) if (entry) roots.add(entry);
+  roots.add(path.dirname(process.execPath));
+  if (process.env.APPDATA) roots.add(path.join(process.env.APPDATA, "npm"));
+  return [...roots];
+}
+
+function pathCandidates(names: string[]): string[] {
+  return (process.env.PATH ?? "").split(path.delimiter).flatMap((root) => names.map((name) => path.join(root, name)));
+}
+
+function environment(name: string): string | undefined {
+  return process.env[name]?.trim() || undefined;
 }
