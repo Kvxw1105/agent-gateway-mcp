@@ -1,0 +1,9 @@
+[mcp_servers.agent-gateway]
+command = "node"
+args = ["C:\\absolute\\path\\agent-gateway-mcp\\dist\\src\\index.js"]
+startup_timeout_ms = 20000
+tool_timeout_sec = 1800
+
+# Optional provider overrides. Never put API keys here.
+# env = { AGENT_GATEWAY_PI_PROVIDER = "opencode-go", AGENT_GATEWAY_PI_MODEL = "opencode-go/deepseek-v4-flash" }
+

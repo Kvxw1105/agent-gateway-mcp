@@ -1,0 +1,5 @@
+interface:
+  display_name: "Agent Gateway Orchestrator"
+  short_description: "Route local CLI agents with budget and safety controls"
+  default_prompt: "Use $agent-gateway-orchestrator to complete this task with the lowest-cost suitable local agent and validate the result."
+

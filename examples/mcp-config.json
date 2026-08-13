@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "agent-gateway": {
+      "command": "node",
+      "args": [
+        "C:\\absolute\\path\\agent-gateway-mcp\\dist\\src\\index.js"
+      ],
+      "env": {
+        "AGENT_GATEWAY_PI_PROVIDER": "opencode-go",
+        "AGENT_GATEWAY_PI_MODEL": "opencode-go/deepseek-v4-flash"
+      }
+    }
+  }
+}
+

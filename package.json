@@ -1,0 +1,41 @@
+{
+  "name": "local-agent-gateway-mcp",
+  "version": "0.2.0",
+  "license": "Apache-2.0",
+  "type": "module",
+  "description": "Windows-native MCP gateway for invoking local Agent CLIs as external subagents.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kvxw1105/agent-gateway-mcp.git"
+  },
+  "homepage": "https://github.com/Kvxw1105/agent-gateway-mcp#readme",
+  "bugs": "https://github.com/Kvxw1105/agent-gateway-mcp/issues",
+  "files": [
+    "dist/src",
+    "LICENSE",
+    "README.md"
+  ],
+  "bin": {
+    "agent-gateway-mcp": "dist/src/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test dist/**/*.test.js",
+    "smoke": "npm run build && node dist/tests/mcp-smoke.js",
+    "smoke:live": "npm run build && node dist/tests/mcp-smoke.js --live",
+    "smoke:providers": "npm run build && node dist/tests/provider-live-smoke.js",
+    "inspect": "npx @modelcontextprotocol/inspector node dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.3",
+    "typescript": "5.8.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
