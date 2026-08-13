@@ -64,13 +64,17 @@ function assistantText(events: Record<string, unknown>[]): string | undefined {
 }
 
 function appendContent(messages: string[], content: unknown): void {
-  if (typeof content === "string") messages.push(content);
+  if (typeof content === "string") pushUnique(messages, content);
   if (!Array.isArray(content)) return;
   for (const part of content) {
     const item = objectValue(part);
     const value = stringValue(item?.text);
-    if (value) messages.push(value);
+    if (value) pushUnique(messages, value);
   }
+}
+
+function pushUnique(messages: string[], value: string): void {
+  if (!messages.includes(value)) messages.push(value);
 }
 
 function lastString(

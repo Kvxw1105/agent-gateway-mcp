@@ -53,5 +53,5 @@
 - ZCode：通过 MCP 异步任务返回 `ZCODE_GATEWAY_OK`、exit 0 和 `sess_*`。
 - Kimi：修正 `--prompt` 与 `--plan` 的非法组合后返回 `KIMI_GATEWAY_OK`、exit 0 和 `session_*`。
 - Codex：0.133.0 使用用户默认 `gpt-5.6-sol` 会因版本过旧失败；网关显式使用兼容的 `gpt-5.5` 后返回 `CODEX_GATEWAY_OK`、exit 0 和 thread id。
-- Claude：`claude auth status` 报 OAuth logged in，但非交互真实调用返回 `Not logged in`；归类为外部认证 blocker。
-- Pi：`pi auth check --provider anthropic` 报 ready，但模型调用返回 `No API key found for anthropic`；归类为外部认证 blocker。
+- Claude：先前 `claude auth status` 的 logged in 来自第三方 `ANTHROPIC_AUTH_TOKEN` 环境覆盖；清除覆盖后确认原生认证未登录，非交互调用返回 `Not logged in`。OpenCode Go 是 OpenAI Completions 兼容接口，不能直接作为 Claude Code 的 Anthropic Messages 端点；归类为外部认证 blocker。
+- Pi：配置为 `opencode-go/deepseek-v4-flash` 后，通过 Windows 用户环境中的 `OPENCODE_API_KEY` 完成网关真实调用，返回 `PI_GATEWAY_OK`、exit 0 和 session id。网关不持久化或记录密钥。

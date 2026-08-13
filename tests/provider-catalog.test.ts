@@ -33,8 +33,26 @@ test("read-only invocations use provider-native restrictions", () => {
     "exec", "--json", "--color", "never", "-m", "gpt-5.5", "-C", "C:\\repo", "-s", "read-only", "inspect only",
   ]);
   assert.deepEqual(buildProviderInvocation("pi", common).args.slice(-10), [
-    "-p", "--mode", "json", "--provider", "anthropic", "--model", "anthropic/claude-sonnet-4-6", "--tools", "read,grep,find,ls", "inspect only",
+    "-p", "--mode", "json", "--provider", "opencode-go", "--model", "opencode-go/deepseek-v4-flash", "--tools", "read,grep,find,ls", "inspect only",
   ]);
+});
+
+test("Claude invocation clears incompatible Anthropic endpoint overrides locally", () => {
+  const invocation = buildProviderInvocation("claude", {
+    prompt: "hello",
+    workDir: "C:\\repo",
+    permission: "read-only",
+  });
+  assert.deepEqual(invocation.unsetEnv, ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"]);
+});
+
+test("Pi invocation requests the OpenCode key from Windows user credentials", () => {
+  const invocation = buildProviderInvocation("pi", {
+    prompt: "hello",
+    workDir: "C:\\repo",
+    permission: "read-only",
+  });
+  assert.deepEqual(invocation.userEnvKeys, ["OPENCODE_API_KEY"]);
 });
 
 test("Windows npm shims are resolved without shell execution", () => {

@@ -9,6 +9,7 @@
 - “让 ZCode 只读审计这个项目，然后告诉我结论。”
 - “让 Kimi 在这个独立 worktree 实现登录页，完成后把结果给我。”
 - “让 Codex 检查测试失败原因，不要修改文件。”
+- “让 Pi 用 DeepSeek V4 Flash 只读审查这个项目。”
 
 Codex 会调用 `agents_spawn`，再用 `agents_wait` 和 `agents_logs` 等待结果。完成任务会直接带回 `response` 与 `sessionId`；需要续接时使用 `agents_resume`。
 
@@ -39,8 +40,10 @@ Codex 会调用 `agents_spawn`，再用 `agents_wait` 和 `agents_logs` 等待�
 | ZCode 3.7.5-11 | JSON | 通过 | 返回 response 与 `sess_*`。 |
 | Kimi 0.34.0 | stream-json | 通过 | 返回 response 与 `session_*`。 |
 | Codex 0.133.0 | JSONL | 通过 | 网关默认 `gpt-5.5`，避开当前配置模型要求升级 CLI；仍有非阻断 cache 警告。 |
-| Claude 2.1.193 | stream-json | 阻断 | `auth status` 显示 OAuth 已登录，但真实 `-p` 请求返回 `Not logged in`，需修复 Claude 登录状态。 |
-| Pi 0.84.1 | JSON | 阻断 | provider/model 可发现，但真实请求返回 `No API key found for anthropic`，需补齐 Pi 可用凭据。 |
+| Claude 2.1.193 | stream-json | 阻断 | 清除不兼容的第三方 Anthropic 环境变量后，原生认证状态为未登录；需先完成 `claude auth login`，或提供真正兼容 Anthropic Messages API 的服务。 |
+| Pi 0.84.1 | JSON | 通过 | 默认使用 `opencode-go/deepseek-v4-flash`；Base URL 由 Pi 的 `models.json` 管理，网关只在启动子进程时从 Windows 用户环境读取 `OPENCODE_API_KEY`。 |
+
+Pi 与 Claude 可以由同一个 MCP 网关统一调度，但不能直接共用 OpenCode Go 的 API 配置：Pi 支持 OpenAI Completions 兼容的 OpenCode Go 接口；Claude Code 要求 Anthropic 登录或 Anthropic Messages 兼容接口。密钥不应写入仓库、MCP 配置或任务日志。
 
 ## 开发与验证
 

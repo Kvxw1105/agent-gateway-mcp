@@ -9,6 +9,8 @@ export interface TaskInvocation {
   cwd: string;
   timeoutMs?: number;
   parseOutput?: (log: string) => { response?: string; sessionId?: string };
+  unsetEnv?: string[];
+  userEnvKeys?: string[];
 }
 
 export interface TaskRecord {
@@ -49,9 +51,15 @@ export class TaskManager {
     };
     this.#tasks.set(id, task);
 
+    const childEnv: NodeJS.ProcessEnv = { ...process.env };
+    for (const name of invocation.unsetEnv ?? []) delete childEnv[name];
+    for (const name of invocation.userEnvKeys ?? []) {
+      const value = readWindowsUserEnvironment(name);
+      if (value) childEnv[name] = value;
+    }
     const child = spawn(invocation.command, invocation.args, {
       cwd: invocation.cwd,
-      env: process.env,
+      env: childEnv,
       shell: false,
       detached: process.platform === "win32",
       windowsHide: true,
@@ -150,4 +158,18 @@ export class TaskManager {
 
 function isTerminal(status: TaskStatus): boolean {
   return status === "succeeded" || status === "failed" || status === "timed_out" || status === "cancelled";
+}
+
+function readWindowsUserEnvironment(name: string): string | undefined {
+  if (process.platform !== "win32") return process.env[name];
+  const result = spawnSync("reg.exe", ["query", "HKCU\\Environment", "/v", name], {
+    windowsHide: true,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  if (result.status !== 0 || !result.stdout) return process.env[name];
+  const line = result.stdout.split(/\r?\n/u).find((item) => item.trimStart().startsWith(name));
+  if (!line) return process.env[name];
+  const match = line.match(/^\s*\S+\s+REG_(?:SZ|EXPAND_SZ)\s+(.*)$/u);
+  return match?.[1]?.trim() || process.env[name];
 }

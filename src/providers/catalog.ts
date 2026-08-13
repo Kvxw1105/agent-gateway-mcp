@@ -67,7 +67,7 @@ const providers: ProviderInfo[] = [
     transport: "json",
     supportsResume: true,
     permissionBoundary: "hard",
-    defaultModel: "anthropic/claude-sonnet-4-6",
+    defaultModel: "opencode-go/deepseek-v4-flash",
   },
 ];
 
@@ -84,7 +84,11 @@ export function getProvider(id: ProviderId): ProviderInfo {
 export function buildProviderInvocation(id: ProviderId, request: ProviderRequest): ProviderInvocation {
   const provider = getProvider(id);
   const args = [...(launchPrefixes[id] ?? []), ...buildArgs(id, request)];
-  return { command: provider.command, args, cwd: request.workDir };
+  const unsetEnv = id === "claude"
+    ? ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"]
+    : undefined;
+  const userEnvKeys = id === "pi" ? ["OPENCODE_API_KEY"] : undefined;
+  return { command: provider.command, args, cwd: request.workDir, unsetEnv, userEnvKeys };
 }
 
 function buildArgs(id: ProviderId, request: ProviderRequest): string[] {
@@ -117,7 +121,7 @@ function buildArgs(id: ProviderId, request: ProviderRequest): string[] {
     }
     case "pi": {
       const tools = permission === "read-only" ? "read,grep,find,ls" : "read,bash,edit,write,grep,find,ls";
-      const args = ["-p", "--mode", "json", "--provider", "anthropic", "--model", request.model ?? "anthropic/claude-sonnet-4-6", "--tools", tools];
+      const args = ["-p", "--mode", "json", "--provider", "opencode-go", "--model", request.model ?? "opencode-go/deepseek-v4-flash", "--tools", tools];
       if (sessionId) args.push("--session", sessionId);
       args.push(prompt);
       return args;

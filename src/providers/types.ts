@@ -24,4 +24,6 @@ export interface ProviderInvocation {
   command: string;
   args: string[];
   cwd: string;
+  unsetEnv?: string[];
+  userEnvKeys?: string[];
 }

@@ -34,7 +34,8 @@ test("extracts Pi session and assistant message", () => {
   const log = [
     JSON.stringify({ type: "session", id: "pi_s" }),
     JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "P_OK" }] } }),
+    JSON.stringify({ type: "turn_end", message: { role: "assistant", content: [{ type: "text", text: "P_OK" }] } }),
+    JSON.stringify({ type: "agent_end", messages: [{ role: "assistant", content: [{ type: "text", text: "P_OK" }] }] }),
   ].join("\n");
   assert.deepEqual(parseProviderOutput("pi", log), { sessionId: "pi_s", response: "P_OK" });
 });
-
