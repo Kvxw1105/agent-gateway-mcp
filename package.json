@@ -1,11 +1,11 @@
 {
   "name": "local-agent-gateway-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Local MCP gateway for invoking Kimi Code as an external coding agent.",
+  "description": "Windows-native MCP gateway for invoking local Agent CLIs as external subagents.",
   "bin": {
-    "agent-gateway-mcp": "dist/index.js"
+    "agent-gateway-mcp": "dist/src/index.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -13,6 +13,7 @@
     "test": "npm run build && node --test dist/**/*.test.js",
     "smoke": "npm run build && node dist/tests/mcp-smoke.js",
     "smoke:live": "npm run build && node dist/tests/mcp-smoke.js --live",
+    "smoke:providers": "npm run build && node dist/tests/provider-live-smoke.js",
     "inspect": "npx @modelcontextprotocol/inspector node dist/index.js"
   },
   "dependencies": {

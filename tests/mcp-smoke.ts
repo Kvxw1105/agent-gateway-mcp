@@ -13,7 +13,23 @@ try {
   await client.connect(transport);
   const listed = await client.listTools();
   const names = listed.tools.map((tool) => tool.name).sort();
-  assert.deepEqual(names, ["kimi_list_sessions", "kimi_resume", "kimi_run", "kimi_status"]);
+  assert.deepEqual(names, [
+    "agents_cancel",
+    "agents_list",
+    "agents_logs",
+    "agents_resume",
+    "agents_spawn",
+    "agents_status",
+    "agents_wait",
+    "kimi_list_sessions",
+    "kimi_resume",
+    "kimi_run",
+    "kimi_status",
+  ]);
+
+  const providers = await client.callTool({ name: "agents_list", arguments: {} });
+  assert.equal(providers.isError, undefined);
+  assert.match(JSON.stringify(providers.content), /zcode/u);
 
   const status = await client.callTool({ name: "kimi_status", arguments: {} });
   assert.equal(status.isError, undefined);
