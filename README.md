@@ -103,6 +103,8 @@ npm audit
 
 The upstream ecosystem audit is in [`docs/audits/2026-08-13-windows-agent-gateway-ecosystem.md`](docs/audits/2026-08-13-windows-agent-gateway-ecosystem.md).
 
+Current architecture decisions, limitations, and the prioritized handoff roadmap are in [`.context/handoff/2026-08-13-agent-gateway-handoff.md`](.context/handoff/2026-08-13-agent-gateway-handoff.md).
+
 ## License
 
 Apache-2.0. The supported Agent CLIs are separate products with their own licenses and terms; this repository does not redistribute them.
