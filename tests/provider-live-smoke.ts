@@ -1,9 +1,15 @@
+import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 const allProviders = ["zcode", "kimi", "claude", "codex", "pi"] as const;
 const requested = process.argv[2];
+const promptFile = process.argv[3];
+const resultFile = process.argv[4];
+const benchmarkPrompt = promptFile
+  ? readFileSync(path.resolve(promptFile), "utf8").trim()
+  : undefined;
 const providers = requested
   ? allProviders.filter((provider) => provider === requested)
   : allProviders;
@@ -29,7 +35,8 @@ try {
       name: "agents_spawn",
       arguments: {
         provider,
-        prompt: `This is a connection smoke test. Do not read or modify files and do not run tools. Reply with exactly: ${token}`,
+        prompt: benchmarkPrompt
+          ?? `This is a connection smoke test. Do not read or modify files and do not run tools. Reply with exactly: ${token}`,
         work_dir: process.cwd(),
         permission: "read-only",
         timeout_seconds: 180,
@@ -39,6 +46,7 @@ try {
     const task = data.task as { id?: string } | undefined;
     if (!task?.id) throw new Error(`${provider} did not return a task id: ${JSON.stringify(data)}`);
     taskIds.set(provider, task.id);
+    process.stdout.write(`[${provider}] 已启动 task ${task.id}\n`);
   }
 
   const results: Record<string, unknown> = {};
@@ -51,12 +59,15 @@ try {
         { timeout: 55_000 },
       ));
       const status = (waited.task as { status?: string } | undefined)?.status;
+      process.stdout.write(`[${provider}] 状态：${status ?? "unknown"}\n`);
       if (["succeeded", "failed", "timed_out", "cancelled"].includes(status ?? "")) break;
     }
     const logs = payload(await client.callTool({ name: "agents_logs", arguments: { task_id: taskId } }));
     results[provider] = { task: waited?.task, logs: logs.text };
   }
-  process.stdout.write(`${JSON.stringify(results, null, 2)}\n`);
+  const report = JSON.stringify(results, null, 2);
+  if (resultFile) writeFileSync(path.resolve(resultFile), `${report}\n`, "utf8");
+  process.stdout.write(`${report}\n`);
 } finally {
   await client.close();
 }
