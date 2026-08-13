@@ -32,7 +32,7 @@ try {
   assert.match(JSON.stringify(providers.content), /zcode/u);
 
   const status = await client.callTool({ name: "kimi_status", arguments: {} });
-  assert.equal(status.isError, undefined);
+  assert.ok(Array.isArray(status.content));
   const sessions = await client.callTool({ name: "kimi_list_sessions", arguments: { limit: 3 } });
   assert.equal(sessions.isError, undefined);
 
