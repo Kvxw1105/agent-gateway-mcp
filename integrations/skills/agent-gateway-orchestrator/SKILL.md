@@ -11,7 +11,7 @@ Act as the controller and use the `agent-gateway` MCP for process lifecycle. Do 
 
 1. Call `agents_list` for current providers and capabilities.
 2. Inspect the target directory and Git state.
-3. Read `references/routing.md` when selecting agents. Read `references/setup.md` when installing or maintaining the gateway.
+3. Read `references/routing.md` when selecting agents. Read `references/local-setup.md` when installing or maintaining the gateway.
 4. Skip unavailable or unauthenticated providers; never disguise an incompatible endpoint as another provider's API.
 
 ## Select a mode
@@ -25,7 +25,9 @@ If the user says quota or budget is low, force `economy` unless they explicitly 
 ## Execute
 
 1. Define a testable result, allowed files, permission, output limit, timeout, and prohibited actions.
-2. Call `agents_spawn`; retain task ID, provider, session ID, and working directory.
+2. Call `agents_spawn`; retain task ID, provider, session ID, and working directory. Pass `profile: "economy"` for quota-sensitive work.
+   - When a worker needs an installed Skill, pass up to four names or allowed absolute `SKILL.md` paths in `skills`.
+   - Prefer `skill_mode: "reference"`; use `full` only when the worker cannot read the local Skill path.
 3. Poll with bounded `agents_wait` calls and read incremental `agents_logs`.
 4. Use `agents_cancel` on timeout, drift, or abnormal cost. Do not retry the same failing route indefinitely.
 5. Use `agents_resume` only to start a new controlled non-interactive process.
@@ -43,13 +45,9 @@ Agents report through Gateway logs and results to the controller. They do not co
 
 ## Visible terminals
 
-When the user explicitly asks to watch execution, run:
+When the user explicitly asks to watch execution, call `agents_observe` with the task ID returned by `agents_spawn`.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/show-agent-terminals.ps1 -GatewayRepo <repo> -PromptFile <prompt> -Providers pi,kimi,zcode
-```
-
-The windows are an observation layer. Treat Gateway task state and saved results as authoritative.
+The visible window follows only the existing task's persisted log and status. It must never launch a provider or create a duplicate task. Treat Gateway task state and saved results as authoritative.
 
 ## Report
 

@@ -13,11 +13,15 @@ Windows 原生的通用 CLI Agent 网关。Codex、Claude Desktop 或其他支�
 
 ## MCP tools
 
-`agents_list`, `agents_spawn`, `agents_status`, `agents_wait`, `agents_logs`, `agents_cancel`, and `agents_resume`.
+`agents_list`, `agents_spawn`, `agents_status`, `agents_wait`, `agents_logs`, `agents_cancel`, `agents_resume`, and `agents_observe`.
 
 Legacy Kimi compatibility tools remain available: `kimi_status`, `kimi_run`, `kimi_resume`, and `kimi_list_sessions`.
 
-For quota-sensitive work, pass `profile: "economy"` to `agents_spawn` or `agents_resume`. Economy rejects prompts over 12,000 characters and, for an isolated write worktree, cancels a worker that produces neither a HEAD change nor a Git status change within three minutes. Existing callers remain on `standard` behavior by default. `agents_logs` returns at most 12,000 characters per call by default (configurable up to 50,000 with `max_chars`) and reports `hasMore` for cursor-based paging.
+For quota-sensitive work, pass `profile: "economy"` to `agents_spawn` or `agents_resume`. Economy rejects original or composed prompts over 12,000 characters and, for an isolated write worktree, cancels a worker whose Git content digest does not change within three minutes. Existing callers remain on `standard` behavior by default. `agents_logs` returns at most 12,000 characters per call by default (configurable up to 50,000 with `max_chars`) and reports `hasMore` for cursor-based paging. Parsed final responses are capped at 8,000 characters; the persisted task log remains authoritative.
+
+Pass up to four entries in `skills` to relay installed skills to a CLI Agent. Each entry may be a skill name or an absolute path to a `SKILL.md` under an allowed root. `skill_mode: "reference"` tells the worker to read the resolved files itself and is the quota-friendly default; `skill_mode: "full"` injects bounded contents. Allowed roots are `%USERPROFILE%\.codex\skills`, `%USERPROFILE%\.agents\skills`, this repository's `integrations\skills`, and optional roots in `AGENT_GATEWAY_SKILL_ROOTS`. Canonical-path checks reject traversal and symlink escapes. Task status exposes resolved paths, never skill contents.
+
+After `agents_spawn`, call `agents_observe` with the returned task ID to open a visible Windows terminal. It only follows that existing task's persisted log and status; it never starts or resumes a provider, so observation does not duplicate Agent usage.
 
 ## Install
 

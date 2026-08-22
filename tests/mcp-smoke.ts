@@ -17,6 +17,7 @@ try {
     "agents_cancel",
     "agents_list",
     "agents_logs",
+    "agents_observe",
     "agents_resume",
     "agents_spawn",
     "agents_status",

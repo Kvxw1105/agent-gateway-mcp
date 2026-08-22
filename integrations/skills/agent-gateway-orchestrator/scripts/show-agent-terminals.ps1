@@ -1,32 +1,47 @@
 param(
   [Parameter(Mandatory = $true)]
-  [string]$GatewayRepo,
+  [string]$TaskId,
   [Parameter(Mandatory = $true)]
-  [string]$PromptFile,
-  [string[]]$Providers = @('pi', 'kimi', 'zcode'),
-  [string]$NodePath = 'node',
-  [string]$OutputDirectory = (Join-Path $env:TEMP 'agent-gateway-demo')
+  [string]$LogPath,
+  [Parameter(Mandatory = $true)]
+  [string]$StatusPath
 )
 
 $ErrorActionPreference = 'Stop'
-$repo = (Resolve-Path -LiteralPath $GatewayRepo -ErrorAction Stop).Path
-$prompt = (Resolve-Path -LiteralPath $PromptFile -ErrorAction Stop).Path
-$entry = Join-Path $repo 'dist\tests\provider-live-smoke.js'
-if (-not (Test-Path -LiteralPath $entry -PathType Leaf)) { throw "Build the gateway first: $entry" }
-New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
+$log = [System.IO.Path]::GetFullPath($LogPath)
+$status = [System.IO.Path]::GetFullPath($StatusPath)
+if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { throw "Task log not found: $log" }
+if (-not (Test-Path -LiteralPath $status -PathType Leaf)) { throw "Task status not found: $status" }
 
-$allowed = @('zcode', 'kimi', 'codex', 'pi')
-foreach ($provider in $Providers) {
-  if ($provider -notin $allowed) { throw "Unsupported visible provider: $provider" }
-  $result = Join-Path $OutputDirectory "$provider-result.json"
-  $command = "Set-Location -LiteralPath '$($repo.Replace("'", "''"))'; " +
-    "`$host.UI.RawUI.WindowTitle='Agent Gateway - $provider'; " +
-    "Write-Host '[$provider] dispatched by controller' -ForegroundColor Cyan; " +
-    "& '$($NodePath.Replace("'", "''"))' '$($entry.Replace("'", "''"))' '$provider' '$($prompt.Replace("'", "''"))' '$($result.Replace("'", "''"))'; " +
-    "Write-Host '[$provider] result returned; terminal retained' -ForegroundColor Green"
-  Start-Process -FilePath 'powershell.exe' -ArgumentList @(
-    '-NoLogo', '-NoProfile', '-NoExit', '-ExecutionPolicy', 'Bypass', '-Command', $command
-  ) -WindowStyle Normal | Out-Null
+$host.UI.RawUI.WindowTitle = "Agent Gateway observer - $TaskId"
+Write-Host "Observing existing task $TaskId (read-only)" -ForegroundColor Cyan
+Write-Host "This window never starts or resumes an Agent." -ForegroundColor DarkGray
+
+$position = 0L
+$terminalStates = @('succeeded', 'failed', 'timed_out', 'cancelled')
+while ($true) {
+  $stream = [System.IO.File]::Open($log, 'Open', 'Read', 'ReadWrite')
+  try {
+    [void]$stream.Seek($position, 'Begin')
+    $reader = [System.IO.StreamReader]::new($stream, [System.Text.Encoding]::UTF8, $true, 4096, $true)
+    try {
+      $newText = $reader.ReadToEnd()
+      if ($newText.Length -gt 0) { Write-Host -NoNewline $newText }
+      $position = $stream.Position
+    } finally {
+      $reader.Dispose()
+    }
+  } finally {
+    $stream.Dispose()
+  }
+
+  $task = Get-Content -LiteralPath $status -Raw | ConvertFrom-Json
+  if ($terminalStates -contains $task.status) {
+    $length = (Get-Item -LiteralPath $log).Length
+    if ($position -ge $length) {
+      Write-Host "`n[$($task.status)] task $TaskId finished." -ForegroundColor Green
+      break
+    }
+  }
+  Start-Sleep -Milliseconds 250
 }
-
-Write-Output "Started $($Providers.Count) visible Agent Gateway terminals."

@@ -10,10 +10,11 @@ import { parseProviderOutput } from "./providers/output.js";
 import { TaskManager } from "./task-manager.js";
 import { WorkspacePolicy } from "./workspace-policy.js";
 import { composePromptWithSkills, resolveSkills } from "./skill-resolver.js";
+import { launchTaskObserver } from "./task-observer.js";
 
 const server = new McpServer({
   name: "local-agent-gateway",
-  version: "0.2.0",
+  version: "0.3.0",
 });
 const tasks = new TaskManager();
 const workspacePolicy = new WorkspacePolicy();
@@ -153,6 +154,25 @@ server.tool(
         release();
         throw error;
       }
+    } catch (error) {
+      return errorResult(error);
+    }
+  },
+);
+
+server.tool(
+  "agents_observe",
+  "Open a visible read-only terminal that follows an existing task's persisted log. This never starts or resumes an agent.",
+  { task_id: z.string().uuid() },
+  async ({ task_id }) => {
+    try {
+      const task = tasks.status(task_id);
+      const pid = launchTaskObserver({
+        taskId: task.id,
+        logPath: task.logPath!,
+        statusPath: task.statusPath!,
+      });
+      return text({ ok: true, taskId: task.id, observerPid: pid, logPath: task.logPath });
     } catch (error) {
       return errorResult(error);
     }

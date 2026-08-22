@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -159,4 +159,33 @@ test("exposes resolved skill metadata without skill contents", async () => {
   assert.equal(finished.skillMode, "reference");
   assert.deepEqual(finished.resolvedSkills, [{ name: "alpha", path: "C:\\skills\\alpha\\SKILL.md" }]);
   assert.doesNotMatch(JSON.stringify(finished), /skill contents/u);
+});
+
+test("persists observer log and status files for an existing task", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "agent-gateway-observer-"));
+  try {
+    const manager = new TaskManager({ taskDirectory: directory });
+    const task = manager.spawn(nodeInvocation("console.log('VISIBLE_OUTPUT')"));
+    assert.ok(task.logPath?.startsWith(directory));
+    assert.ok(task.statusPath?.startsWith(directory));
+    const finished = await manager.wait(task.id, 2_000);
+    assert.match(await readFile(finished.logPath!, "utf8"), /VISIBLE_OUTPUT/u);
+    const status = JSON.parse(await readFile(finished.statusPath!, "utf8")) as { id: string; status: string; response?: string };
+    assert.equal(status.id, task.id);
+    assert.equal(status.status, "succeeded");
+    assert.equal(status.response, undefined);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("caps structured responses while preserving the full task log", async () => {
+  const manager = new TaskManager();
+  const task = manager.spawn({
+    ...nodeInvocation("console.log('done')"),
+    parseOutput: () => ({ response: "x".repeat(9_000) }),
+  });
+  const finished = await manager.wait(task.id, 2_000);
+  assert.equal(finished.response?.length, 8_000);
+  assert.equal(finished.responseTruncated, true);
 });

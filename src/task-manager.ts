@@ -1,7 +1,8 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 export type TaskStatus = "queued" | "running" | "succeeded" | "failed" | "timed_out" | "cancelled";
@@ -14,7 +15,7 @@ export interface TaskInvocation {
   parseOutput?: (log: string) => { response?: string; sessionId?: string };
   unsetEnv?: string[];
   userEnvKeys?: string[];
-  /** Cancel a write task if neither HEAD nor git status changes by this deadline. */
+  /** Cancel a write task if its Git content digest does not change by this deadline. */
   firstWorktreeChangeMs?: number;
   skillMode?: "reference" | "full";
   resolvedSkills?: Array<{ name: string; path: string }>;
@@ -32,6 +33,9 @@ export interface TaskRecord {
   sessionId?: string;
   skillMode?: "reference" | "full";
   resolvedSkills?: Array<{ name: string; path: string }>;
+  logPath?: string;
+  statusPath?: string;
+  responseTruncated?: boolean;
 }
 
 interface InternalTask {
@@ -48,6 +52,12 @@ interface InternalTask {
 
 export class TaskManager {
   readonly #tasks = new Map<string, InternalTask>();
+  readonly #taskDirectory: string;
+
+  constructor(options: { taskDirectory?: string } = {}) {
+    this.#taskDirectory = options.taskDirectory ?? path.join(os.tmpdir(), "agent-gateway", "tasks");
+    mkdirSync(this.#taskDirectory, { recursive: true });
+  }
 
   spawn(invocation: TaskInvocation): TaskRecord {
     const id = randomUUID();
@@ -60,6 +70,8 @@ export class TaskManager {
         createdAt: new Date().toISOString(),
         skillMode: invocation.skillMode,
         resolvedSkills: invocation.resolvedSkills,
+        logPath: path.join(this.#taskDirectory, `${id}.log`),
+        statusPath: path.join(this.#taskDirectory, `${id}.status.json`),
       },
       log: "",
       done,
@@ -69,6 +81,8 @@ export class TaskManager {
         ? undefined
         : worktreeSnapshot(invocation.cwd),
     };
+    writeFileSync(task.record.logPath!, "", "utf8");
+    persistObserverStatus(task.record);
     this.#tasks.set(id, task);
 
     const childEnv: NodeJS.ProcessEnv = { ...process.env };
@@ -88,10 +102,11 @@ export class TaskManager {
     task.child = child;
     task.record.status = "running";
     task.record.startedAt = new Date().toISOString();
+    persistObserverStatus(task.record);
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => { task.log += chunk; });
-    child.stderr.on("data", (chunk: string) => { task.log += chunk; });
+    child.stdout.on("data", (chunk: string) => { this.#appendLog(task, chunk); });
+    child.stderr.on("data", (chunk: string) => { this.#appendLog(task, chunk); });
     child.on("error", (error) => this.#finish(task, "failed", null, error.message));
     child.on("close", (code) => {
       if (isTerminal(task.record.status)) return;
@@ -171,6 +186,11 @@ export class TaskManager {
     task.child.kill("SIGTERM");
   }
 
+  #appendLog(task: InternalTask, chunk: string): void {
+    task.log += chunk;
+    appendFileSync(task.record.logPath!, chunk, "utf8");
+  }
+
   #finish(task: InternalTask, status: TaskStatus, exitCode: number | null, error?: string): void {
     if (isTerminal(task.record.status)) return;
     if (task.timer) clearTimeout(task.timer);
@@ -182,12 +202,16 @@ export class TaskManager {
     if (task.parseOutput) {
       try {
         const parsed = task.parseOutput(task.log);
-        if (parsed.response !== undefined) task.record.response = parsed.response;
+        if (parsed.response !== undefined) {
+          task.record.response = parsed.response.slice(0, 8_000);
+          if (parsed.response.length > 8_000) task.record.responseTruncated = true;
+        }
         if (parsed.sessionId !== undefined) task.record.sessionId = parsed.sessionId;
       } catch (parseError) {
         task.record.error ??= `Output parse failed: ${parseError instanceof Error ? parseError.message : String(parseError)}`;
       }
     }
+    persistObserverStatus(task.record);
     task.resolveDone();
   }
 
@@ -196,6 +220,19 @@ export class TaskManager {
     if (!task) throw new Error(`Unknown task: ${id}`);
     return task;
   }
+}
+
+function persistObserverStatus(record: TaskRecord): void {
+  if (!record.statusPath) return;
+  writeFileSync(record.statusPath, JSON.stringify({
+    id: record.id,
+    status: record.status,
+    createdAt: record.createdAt,
+    startedAt: record.startedAt,
+    endedAt: record.endedAt,
+    exitCode: record.exitCode,
+    error: record.error,
+  }), "utf8");
 }
 
 function worktreeSnapshot(cwd: string): string | undefined {
