@@ -26,6 +26,23 @@ try {
     "kimi_run",
     "kimi_status",
   ]);
+  const spawnTool = listed.tools.find((tool) => tool.name === "agents_spawn");
+  const logsTool = listed.tools.find((tool) => tool.name === "agents_logs");
+  assert.match(JSON.stringify(spawnTool?.inputSchema), /profile/u);
+  assert.match(JSON.stringify(logsTool?.inputSchema), /max_chars/u);
+
+  const oversized = await client.callTool({
+    name: "agents_spawn",
+    arguments: {
+      provider: "pi",
+      prompt: "x".repeat(12_001),
+      work_dir: process.cwd(),
+      permission: "read-only",
+      profile: "economy",
+    },
+  });
+  assert.equal(oversized.isError, true);
+  assert.match(JSON.stringify(oversized.content), /compact task capsule/u);
 
   const providers = await client.callTool({ name: "agents_list", arguments: {} });
   assert.equal(providers.isError, undefined);

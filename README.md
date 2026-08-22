@@ -17,6 +17,8 @@ Windows 原生的通用 CLI Agent 网关。Codex、Claude Desktop 或其他支�
 
 Legacy Kimi compatibility tools remain available: `kimi_status`, `kimi_run`, `kimi_resume`, and `kimi_list_sessions`.
 
+For quota-sensitive work, pass `profile: "economy"` to `agents_spawn` or `agents_resume`. Economy rejects prompts over 12,000 characters and, for an isolated write worktree, cancels a worker that produces neither a HEAD change nor a Git status change within three minutes. Existing callers remain on `standard` behavior by default. `agents_logs` returns at most 12,000 characters per call by default (configurable up to 50,000 with `max_chars`) and reports `hasMore` for cursor-based paging.
+
 ## Install
 
 Requirements: Windows, Node.js 20+, and at least one supported Agent CLI already installed and authenticated.

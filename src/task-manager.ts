@@ -11,6 +11,8 @@ export interface TaskInvocation {
   parseOutput?: (log: string) => { response?: string; sessionId?: string };
   unsetEnv?: string[];
   userEnvKeys?: string[];
+  /** Cancel a write task if neither HEAD nor git status changes by this deadline. */
+  firstWorktreeChangeMs?: number;
 }
 
 export interface TaskRecord {
@@ -30,9 +32,11 @@ interface InternalTask {
   child?: ChildProcess;
   log: string;
   timer?: NodeJS.Timeout;
+  changeTimer?: NodeJS.Timeout;
   done: Promise<void>;
   resolveDone: () => void;
   parseOutput?: TaskInvocation["parseOutput"];
+  baselineWorktree?: string;
 }
 
 export class TaskManager {
@@ -48,6 +52,9 @@ export class TaskManager {
       done,
       resolveDone,
       parseOutput: invocation.parseOutput,
+      baselineWorktree: invocation.firstWorktreeChangeMs === undefined
+        ? undefined
+        : worktreeSnapshot(invocation.cwd),
     };
     this.#tasks.set(id, task);
 
@@ -85,6 +92,21 @@ export class TaskManager {
         this.#finish(task, "timed_out", null, `Timed out after ${invocation.timeoutMs}ms`);
       }, invocation.timeoutMs);
     }
+    if (invocation.firstWorktreeChangeMs !== undefined && task.baselineWorktree !== undefined) {
+      task.changeTimer = setTimeout(() => {
+        if (isTerminal(task.record.status)) return;
+        const current = worktreeSnapshot(invocation.cwd);
+        // A failed git probe is not evidence that the worker made no progress.
+        if (current === undefined || current !== task.baselineWorktree) return;
+        this.#terminate(task);
+        this.#finish(
+          task,
+          "timed_out",
+          null,
+          `No worktree change after ${invocation.firstWorktreeChangeMs}ms`,
+        );
+      }, invocation.firstWorktreeChangeMs);
+    }
     return { ...task.record };
   }
 
@@ -103,10 +125,16 @@ export class TaskManager {
     return { ...task.record };
   }
 
-  logs(id: string, cursor = 0): { text: string; cursor: number } {
+  logs(id: string, cursor = 0, maxChars = 12_000): { text: string; cursor: number; hasMore: boolean } {
     const log = this.#require(id).log;
     const safeCursor = Math.max(0, Math.min(cursor, log.length));
-    return { text: log.slice(safeCursor), cursor: log.length };
+    const safeLimit = Math.max(1, maxChars);
+    const nextCursor = Math.min(log.length, safeCursor + safeLimit);
+    return {
+      text: log.slice(safeCursor, nextCursor),
+      cursor: nextCursor,
+      hasMore: nextCursor < log.length,
+    };
   }
 
   cancel(id: string): TaskRecord {
@@ -133,6 +161,7 @@ export class TaskManager {
   #finish(task: InternalTask, status: TaskStatus, exitCode: number | null, error?: string): void {
     if (isTerminal(task.record.status)) return;
     if (task.timer) clearTimeout(task.timer);
+    if (task.changeTimer) clearTimeout(task.changeTimer);
     task.record.status = status;
     task.record.exitCode = exitCode;
     task.record.endedAt = new Date().toISOString();
@@ -154,6 +183,30 @@ export class TaskManager {
     if (!task) throw new Error(`Unknown task: ${id}`);
     return task;
   }
+}
+
+function worktreeSnapshot(cwd: string): string | undefined {
+  const root = spawnSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd,
+    windowsHide: true,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  if (root.status !== 0) return undefined;
+  const head = spawnSync("git", ["rev-parse", "HEAD"], {
+    cwd,
+    windowsHide: true,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  const status = spawnSync("git", ["status", "--porcelain=v1", "--untracked-files=all"], {
+    cwd,
+    windowsHide: true,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  if (status.status !== 0) return undefined;
+  return `${head.status === 0 ? head.stdout.trim() : "NO_HEAD"}\n${status.stdout}`;
 }
 
 function isTerminal(status: TaskStatus): boolean {

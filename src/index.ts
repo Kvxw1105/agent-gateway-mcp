@@ -27,6 +27,17 @@ function errorResult(error: unknown) {
 
 const providerSchema = z.enum(["zcode", "kimi", "claude", "codex", "pi"]);
 const permissionSchema = z.enum(["read-only", "workspace-write"]);
+const profileSchema = z.enum(["standard", "economy"]);
+const ECONOMY_PROMPT_MAX_CHARS = 12_000;
+const ECONOMY_FIRST_CHANGE_MS = 180_000;
+
+export function assertPromptWithinProfile(prompt: string, profile: "standard" | "economy"): void {
+  if (profile === "economy" && prompt.length > ECONOMY_PROMPT_MAX_CHARS) {
+    throw new Error(
+      `economy prompt exceeds ${ECONOMY_PROMPT_MAX_CHARS} characters; send a compact task capsule instead`,
+    );
+  }
+}
 
 server.tool(
   "agents_list",
@@ -45,10 +56,12 @@ server.tool(
     work_dir: z.string().min(1),
     permission: permissionSchema.default("read-only"),
     isolated_worktree: z.boolean().optional().describe("Set true only when work_dir is an independent Git worktree."),
+    profile: profileSchema.default("standard"),
     timeout_seconds: z.number().int().min(10).max(7200).optional(),
   },
-  async ({ provider, prompt, model, work_dir, permission, isolated_worktree, timeout_seconds }) => {
+  async ({ provider, prompt, model, work_dir, permission, isolated_worktree, profile, timeout_seconds }) => {
     try {
+      assertPromptWithinProfile(prompt, profile);
       const release = workspacePolicy.acquire(work_dir, permission as PermissionMode, isolated_worktree === true);
       try {
         const invocation = buildProviderInvocation(provider as ProviderId, {
@@ -60,6 +73,11 @@ server.tool(
         const task = tasks.spawn({
           ...invocation,
           timeoutMs: (timeout_seconds ?? 600) * 1000,
+          firstWorktreeChangeMs: profile === "economy"
+            && permission === "workspace-write"
+            && isolated_worktree === true
+            ? ECONOMY_FIRST_CHANGE_MS
+            : undefined,
           parseOutput: (log) => parseProviderOutput(provider as ProviderId, log),
         });
         void tasks.wait(task.id, (timeout_seconds ?? 600) * 1000 + 60_000).finally(release);
@@ -85,10 +103,12 @@ server.tool(
     work_dir: z.string().min(1),
     permission: permissionSchema.default("read-only"),
     isolated_worktree: z.boolean().optional(),
+    profile: profileSchema.default("standard"),
     timeout_seconds: z.number().int().min(10).max(7200).optional(),
   },
-  async ({ provider, session_id, prompt, model, work_dir, permission, isolated_worktree, timeout_seconds }) => {
+  async ({ provider, session_id, prompt, model, work_dir, permission, isolated_worktree, profile, timeout_seconds }) => {
     try {
+      assertPromptWithinProfile(prompt, profile);
       const release = workspacePolicy.acquire(work_dir, permission as PermissionMode, isolated_worktree === true);
       try {
         const invocation = buildProviderInvocation(provider as ProviderId, {
@@ -101,6 +121,11 @@ server.tool(
         const task = tasks.spawn({
           ...invocation,
           timeoutMs: (timeout_seconds ?? 600) * 1000,
+          firstWorktreeChangeMs: profile === "economy"
+            && permission === "workspace-write"
+            && isolated_worktree === true
+            ? ECONOMY_FIRST_CHANGE_MS
+            : undefined,
           parseOutput: (log) => parseProviderOutput(provider as ProviderId, log),
         });
         void tasks.wait(task.id, (timeout_seconds ?? 600) * 1000 + 60_000).finally(release);
@@ -138,9 +163,13 @@ server.tool(
 server.tool(
   "agents_logs",
   "Read agent stdout/stderr from a character cursor. Pass the returned cursor to fetch only new output.",
-  { task_id: z.string().uuid(), cursor: z.number().int().min(0).optional() },
-  async ({ task_id, cursor }) => {
-    try { return text({ ok: true, ...tasks.logs(task_id, cursor) }); }
+  {
+    task_id: z.string().uuid(),
+    cursor: z.number().int().min(0).optional(),
+    max_chars: z.number().int().min(1).max(50_000).default(12_000),
+  },
+  async ({ task_id, cursor, max_chars }) => {
+    try { return text({ ok: true, ...tasks.logs(task_id, cursor, max_chars) }); }
     catch (error) { return errorResult(error); }
   },
 );
