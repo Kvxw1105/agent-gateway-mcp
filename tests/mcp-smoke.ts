@@ -27,8 +27,13 @@ try {
     "kimi_status",
   ]);
   const spawnTool = listed.tools.find((tool) => tool.name === "agents_spawn");
+  const resumeTool = listed.tools.find((tool) => tool.name === "agents_resume");
   const logsTool = listed.tools.find((tool) => tool.name === "agents_logs");
   assert.match(JSON.stringify(spawnTool?.inputSchema), /profile/u);
+  assert.match(JSON.stringify(spawnTool?.inputSchema), /skills/u);
+  assert.match(JSON.stringify(spawnTool?.inputSchema), /skill_mode/u);
+  assert.match(JSON.stringify(resumeTool?.inputSchema), /skills/u);
+  assert.match(JSON.stringify(resumeTool?.inputSchema), /skill_mode/u);
   assert.match(JSON.stringify(logsTool?.inputSchema), /max_chars/u);
 
   const oversized = await client.callTool({

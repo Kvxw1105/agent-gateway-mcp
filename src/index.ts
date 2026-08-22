@@ -9,6 +9,7 @@ import type { PermissionMode, ProviderId } from "./providers/types.js";
 import { parseProviderOutput } from "./providers/output.js";
 import { TaskManager } from "./task-manager.js";
 import { WorkspacePolicy } from "./workspace-policy.js";
+import { composePromptWithSkills, resolveSkills } from "./skill-resolver.js";
 
 const server = new McpServer({
   name: "local-agent-gateway",
@@ -28,7 +29,9 @@ function errorResult(error: unknown) {
 const providerSchema = z.enum(["zcode", "kimi", "claude", "codex", "pi"]);
 const permissionSchema = z.enum(["read-only", "workspace-write"]);
 const profileSchema = z.enum(["standard", "economy"]);
+const skillModeSchema = z.enum(["reference", "full"]);
 const ECONOMY_PROMPT_MAX_CHARS = 12_000;
+const STANDARD_COMPOSED_PROMPT_MAX_CHARS = 100_000;
 const ECONOMY_FIRST_CHANGE_MS = 180_000;
 
 export function assertPromptWithinProfile(prompt: string, profile: "standard" | "economy"): void {
@@ -57,15 +60,21 @@ server.tool(
     permission: permissionSchema.default("read-only"),
     isolated_worktree: z.boolean().optional().describe("Set true only when work_dir is an independent Git worktree."),
     profile: profileSchema.default("standard"),
+    skills: z.array(z.string().min(1)).max(4).optional(),
+    skill_mode: skillModeSchema.default("reference"),
     timeout_seconds: z.number().int().min(10).max(7200).optional(),
   },
-  async ({ provider, prompt, model, work_dir, permission, isolated_worktree, profile, timeout_seconds }) => {
+  async ({ provider, prompt, model, work_dir, permission, isolated_worktree, profile, skills, skill_mode, timeout_seconds }) => {
     try {
       assertPromptWithinProfile(prompt, profile);
+      const resolvedSkills = await resolveSkills(skills ?? []);
+      const composedPrompt = composePromptWithSkills(prompt, resolvedSkills, skill_mode, {
+        maxChars: profile === "economy" ? ECONOMY_PROMPT_MAX_CHARS : STANDARD_COMPOSED_PROMPT_MAX_CHARS,
+      });
       const release = workspacePolicy.acquire(work_dir, permission as PermissionMode, isolated_worktree === true);
       try {
         const invocation = buildProviderInvocation(provider as ProviderId, {
-          prompt,
+          prompt: composedPrompt,
           workDir: work_dir,
           permission: permission as PermissionMode,
           model,
@@ -79,6 +88,8 @@ server.tool(
             ? ECONOMY_FIRST_CHANGE_MS
             : undefined,
           parseOutput: (log) => parseProviderOutput(provider as ProviderId, log),
+          skillMode: resolvedSkills.length > 0 ? skill_mode : undefined,
+          resolvedSkills: resolvedSkills.map(({ name, path: skillPath }) => ({ name, path: skillPath })),
         });
         void tasks.wait(task.id, (timeout_seconds ?? 600) * 1000 + 60_000).finally(release);
         return text({ ok: true, task });
@@ -104,15 +115,21 @@ server.tool(
     permission: permissionSchema.default("read-only"),
     isolated_worktree: z.boolean().optional(),
     profile: profileSchema.default("standard"),
+    skills: z.array(z.string().min(1)).max(4).optional(),
+    skill_mode: skillModeSchema.default("reference"),
     timeout_seconds: z.number().int().min(10).max(7200).optional(),
   },
-  async ({ provider, session_id, prompt, model, work_dir, permission, isolated_worktree, profile, timeout_seconds }) => {
+  async ({ provider, session_id, prompt, model, work_dir, permission, isolated_worktree, profile, skills, skill_mode, timeout_seconds }) => {
     try {
       assertPromptWithinProfile(prompt, profile);
+      const resolvedSkills = await resolveSkills(skills ?? []);
+      const composedPrompt = composePromptWithSkills(prompt, resolvedSkills, skill_mode, {
+        maxChars: profile === "economy" ? ECONOMY_PROMPT_MAX_CHARS : STANDARD_COMPOSED_PROMPT_MAX_CHARS,
+      });
       const release = workspacePolicy.acquire(work_dir, permission as PermissionMode, isolated_worktree === true);
       try {
         const invocation = buildProviderInvocation(provider as ProviderId, {
-          prompt,
+          prompt: composedPrompt,
           workDir: work_dir,
           permission: permission as PermissionMode,
           sessionId: session_id,
@@ -127,6 +144,8 @@ server.tool(
             ? ECONOMY_FIRST_CHANGE_MS
             : undefined,
           parseOutput: (log) => parseProviderOutput(provider as ProviderId, log),
+          skillMode: resolvedSkills.length > 0 ? skill_mode : undefined,
+          resolvedSkills: resolvedSkills.map(({ name, path: skillPath }) => ({ name, path: skillPath })),
         });
         void tasks.wait(task.id, (timeout_seconds ?? 600) * 1000 + 60_000).finally(release);
         return text({ ok: true, task });

@@ -1,5 +1,8 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 
 export type TaskStatus = "queued" | "running" | "succeeded" | "failed" | "timed_out" | "cancelled";
 
@@ -13,6 +16,8 @@ export interface TaskInvocation {
   userEnvKeys?: string[];
   /** Cancel a write task if neither HEAD nor git status changes by this deadline. */
   firstWorktreeChangeMs?: number;
+  skillMode?: "reference" | "full";
+  resolvedSkills?: Array<{ name: string; path: string }>;
 }
 
 export interface TaskRecord {
@@ -25,6 +30,8 @@ export interface TaskRecord {
   error?: string;
   response?: string;
   sessionId?: string;
+  skillMode?: "reference" | "full";
+  resolvedSkills?: Array<{ name: string; path: string }>;
 }
 
 interface InternalTask {
@@ -47,7 +54,13 @@ export class TaskManager {
     let resolveDone: () => void = () => {};
     const done = new Promise<void>((resolve) => { resolveDone = resolve; });
     const task: InternalTask = {
-      record: { id, status: "queued", createdAt: new Date().toISOString() },
+      record: {
+        id,
+        status: "queued",
+        createdAt: new Date().toISOString(),
+        skillMode: invocation.skillMode,
+        resolvedSkills: invocation.resolvedSkills,
+      },
       log: "",
       done,
       resolveDone,
@@ -199,14 +212,45 @@ function worktreeSnapshot(cwd: string): string | undefined {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "ignore"],
   });
-  const status = spawnSync("git", ["status", "--porcelain=v1", "--untracked-files=all"], {
+  const unstaged = spawnSync("git", ["diff", "--binary", "--no-ext-diff"], {
     cwd,
     windowsHide: true,
-    encoding: "utf8",
+    encoding: "buffer",
     stdio: ["ignore", "pipe", "ignore"],
   });
-  if (status.status !== 0) return undefined;
-  return `${head.status === 0 ? head.stdout.trim() : "NO_HEAD"}\n${status.stdout}`;
+  const staged = spawnSync("git", ["diff", "--cached", "--binary", "--no-ext-diff"], {
+    cwd,
+    windowsHide: true,
+    encoding: "buffer",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  const untracked = spawnSync("git", ["ls-files", "--others", "--exclude-standard", "-z"], {
+    cwd,
+    windowsHide: true,
+    encoding: "buffer",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  if (unstaged.status !== 0 || staged.status !== 0 || untracked.status !== 0) return undefined;
+
+  const hash = createHash("sha256");
+  hash.update(head.status === 0 ? head.stdout.trim() : "NO_HEAD");
+  hash.update("\0unstaged\0");
+  hash.update(unstaged.stdout);
+  hash.update("\0staged\0");
+  hash.update(staged.stdout);
+  hash.update("\0untracked\0");
+  const rootPath = root.stdout.trim();
+  for (const relativePath of untracked.stdout.toString("utf8").split("\0").filter(Boolean).sort()) {
+    hash.update(relativePath);
+    hash.update("\0");
+    try {
+      hash.update(readFileSync(path.join(rootPath, relativePath)));
+    } catch {
+      // A concurrently removed file still changes the next snapshot's path set.
+    }
+    hash.update("\0");
+  }
+  return hash.digest("hex");
 }
 
 function isTerminal(status: TaskStatus): boolean {
